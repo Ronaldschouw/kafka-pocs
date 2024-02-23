@@ -109,6 +109,22 @@ services:
     depends_on:
       - zookeeper
 
+
+  kafka-ui:
+    container_name: kafka-ui
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - 8080:8080
+    depends_on:
+      - kafka-0
+      - kafka-1
+      - kafka-2
+      - zookeeper
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-0:9092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+
 networks:
   kafkanet:
     name: kafka-network
