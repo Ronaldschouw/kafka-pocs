@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
- 
+
 set -eu
 
 CN="${CN:-kafka-admin}"
@@ -18,19 +18,19 @@ KEYSTORE_SIGN_REQUEST="cert-file"
 KEYSTORE_SIGN_REQUEST_SRL="ca-cert.srl"
 KEYSTORE_SIGNED_CERT="cert-signed"
 KAFKA_HOSTS_FILE="kafka-hosts.txt"
- 
+
 if [ ! -f "$KAFKA_HOSTS_FILE" ]; then
   echo "'$KAFKA_HOSTS_FILE' does not exists. Create this file"
   exit 1
 fi
- 
+
 echo "Welcome to the Kafka SSL certificate authority, key store and trust store generator script."
 
 echo
 echo "First we will create our own certificate authority"
 echo "  Two files will be created if not existing:"
 echo "    - $CA_WORKING_DIRECTORY/$CA_KEY_FILE -- the private key used later to sign certificates"
-echo "    - $CA_WORKING_DIRECTORY/$CA_CERT_FILE -- the certificate that will be stored in the trust store" 
+echo "    - $CA_WORKING_DIRECTORY/$CA_CERT_FILE -- the certificate that will be stored in the trust store"
 echo "                                                        and serve as the certificate authority (CA)."
 if [ -f "$CA_WORKING_DIRECTORY/$CA_KEY_FILE" ] && [ -f "$CA_WORKING_DIRECTORY/$CA_CERT_FILE" ]; then
   echo "Use existing $CA_WORKING_DIRECTORY/$CA_KEY_FILE and $CA_WORKING_DIRECTORY/$CA_CERT_FILE ..."
@@ -48,47 +48,51 @@ echo "A keystore will be generated for each host in $KAFKA_HOSTS_FILE as each br
 echo
 echo " NOTE: currently in Kafka, the Common Name (CN) does not need to be the FQDN of"
 echo " this host. However, at some point, this may change. As such, make the CN"
-echo " the FQDN. Some operating systems call the CN prompt 'first / last name'" 
+echo " the FQDN. Some operating systems call the CN prompt 'first / last name'"
 echo " To learn more about CNs and FQDNs, read:"
 echo " https://docs.oracle.com/javase/7/docs/api/javax/net/ssl/X509ExtendedTrustManager.html"
 rm -rf $KEYSTORE_WORKING_DIRECTORY && mkdir $KEYSTORE_WORKING_DIRECTORY
 while read -r KAFKA_HOST || [ -n "$KAFKA_HOST" ]; do
-  if [[ $KAFKA_HOST =~ ^kafka-[0-9]+$ ]]; then
+  if [ $KAFKA_HOST = "kafka-0.westeurope.cloudapp.azure.com" ]; then
       SUFFIX="server"
       DNAME="CN=$KAFKA_HOST"
+      SAN="SAN=dns:kafka-0.westeurope.cloudapp.azure.com,dns:localhost"
   else
       SUFFIX="client"
       DNAME="CN=client"
+      SAN="SAN=dns:localhost"
   fi
   KEY_STORE_FILE_NAME="$KAFKA_HOST.$SUFFIX.keystore.jks"
   echo
   echo "'$KEYSTORE_WORKING_DIRECTORY/$KEY_STORE_FILE_NAME' will contain a key pair and a self-signed certificate."
-  keytool -genkey -keystore $KEYSTORE_WORKING_DIRECTORY/"$KEY_STORE_FILE_NAME" \
+  keytool -genkeypair -keystore $KEYSTORE_WORKING_DIRECTORY/"$KEY_STORE_FILE_NAME" \
     -alias localhost -validity $VALIDITY_IN_DAYS -keyalg RSA \
-    -noprompt -dname $DNAME -keypass $PASSWORD -storepass $PASSWORD
- 
+    -noprompt -dname $DNAME -ext $SAN -keypass $PASSWORD -storepass $PASSWORD
+
   echo
   echo "Now a certificate signing request will be made to the keystore."
   keytool -certreq -keystore $KEYSTORE_WORKING_DIRECTORY/"$KEY_STORE_FILE_NAME" \
-    -alias localhost -file $KEYSTORE_SIGN_REQUEST -keypass $PASSWORD -storepass $PASSWORD
- 
+    -alias localhost -ext $SAN -file $KEYSTORE_SIGN_REQUEST -keypass $PASSWORD -storepass $PASSWORD
+
   echo
   echo "Now the private key of the certificate authority (CA) will sign the keystore's certificate."
   openssl x509 -req -CA $CA_WORKING_DIRECTORY/$CA_CERT_FILE \
     -CAkey $CA_WORKING_DIRECTORY/$CA_KEY_FILE \
     -in $KEYSTORE_SIGN_REQUEST -out $KEYSTORE_SIGNED_CERT \
-    -days $VALIDITY_IN_DAYS -CAcreateserial
+    -days $VALIDITY_IN_DAYS -CAcreateserial \
+    -extfile altnames.txt
+
   # creates $CA_WORKING_DIRECTORY/$KEYSTORE_SIGN_REQUEST_SRL which is never used or needed.
- 
+
   echo
   echo "Now the CA will be imported into the keystore."
   keytool -keystore $KEYSTORE_WORKING_DIRECTORY/"$KEY_STORE_FILE_NAME" -alias CARoot \
     -import -file $CA_WORKING_DIRECTORY/$CA_CERT_FILE -keypass $PASSWORD -storepass $PASSWORD -noprompt
- 
+
   echo
   echo "Now the keystore's signed certificate will be imported back into the keystore."
   keytool -keystore $KEYSTORE_WORKING_DIRECTORY/"$KEY_STORE_FILE_NAME" -alias localhost \
-    -import -file $KEYSTORE_SIGNED_CERT -keypass $PASSWORD -storepass $PASSWORD
+    -import -file $KEYSTORE_SIGNED_CERT -keypass $PASSWORD -storepass $PASSWORD -ext $SAN
 
   echo
   echo "Complete keystore generation!"

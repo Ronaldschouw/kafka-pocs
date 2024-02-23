@@ -1,2 +1,2 @@
-kafka-0
+kafka-0.westeurope.cloudapp.azure.com
 kafka
